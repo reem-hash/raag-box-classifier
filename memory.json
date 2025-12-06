@@ -1,0 +1,44 @@
+{
+    "box_condition": [
+        {
+            "status": "OK",
+            "result": "OK",
+            "confidence": 0.8,
+            "reason": "The box appears to be fully intact and functional, with only minor cosmetic wear visible. There are no tears, holes, or significant dents that would compromise its structural integrity.",
+            "damage_types": [],
+            "timestamp": "2025-12-05T17:16:32.454574"
+        }
+    ],
+    "statistics": {
+        "total_evaluations": 1,
+        "correct_predictions": 0,
+        "low_confidence_cases": 1,
+        "last_accuracy": 1.0,
+        "drift_score": 0.0
+    },
+    "patterns": {
+        "common_damages": {},
+        "edge_cases": [],
+        "confidence_history": [
+            0.8
+        ]
+    },
+    "reinforcement_data": {
+        "high_confidence_correct": [],
+        "low_confidence_cases": [
+            {
+                "prediction": {
+                    "status": "OK",
+                    "result": "OK",
+                    "confidence": 0.8,
+                    "reason": "The box appears to be fully intact and functional, with only minor cosmetic wear visible. There are no tears, holes, or significant dents that would compromise its structural integrity.",
+                    "damage_types": [],
+                    "timestamp": "2025-12-05T17:16:32.454574"
+                },
+                "timestamp": "2025-12-05T17:16:32.454574",
+                "needs_review": true
+            }
+        ],
+        "model_improvements": []
+    }
+}
