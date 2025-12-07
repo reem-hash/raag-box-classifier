@@ -7,10 +7,22 @@
             "reason": "The box appears to be fully intact and functional, with only minor cosmetic wear visible. There are no tears, holes, or significant dents that would compromise its structural integrity.",
             "damage_types": [],
             "timestamp": "2025-12-05T17:16:32.454574"
+        },
+        {
+            "status": "NEEDS_FIX",
+            "result": "NEEDS_FIX",
+            "confidence": 0.85,
+            "reason": "The box has a noticeable crack and appears to have structural damage that could compromise its functionality. Additionally, there are signs of wear and possible water damage.",
+            "damage_types": [
+                "crack",
+                "wear",
+                "possible water damage"
+            ],
+            "timestamp": "2025-12-07T11:36:06.681789"
         }
     ],
     "statistics": {
-        "total_evaluations": 1,
+        "total_evaluations": 2,
         "correct_predictions": 0,
         "low_confidence_cases": 1,
         "last_accuracy": 1.0,
@@ -20,11 +32,29 @@
         "common_damages": {},
         "edge_cases": [],
         "confidence_history": [
-            0.8
+            0.8,
+            0.85
         ]
     },
     "reinforcement_data": {
-        "high_confidence_correct": [],
+        "high_confidence_correct": [
+            {
+                "prediction": {
+                    "status": "NEEDS_FIX",
+                    "result": "NEEDS_FIX",
+                    "confidence": 0.85,
+                    "reason": "The box has a noticeable crack and appears to have structural damage that could compromise its functionality. Additionally, there are signs of wear and possible water damage.",
+                    "damage_types": [
+                        "crack",
+                        "wear",
+                        "possible water damage"
+                    ],
+                    "timestamp": "2025-12-07T11:36:06.681789"
+                },
+                "timestamp": "2025-12-07T11:36:06.681789",
+                "used_for_training": false
+            }
+        ],
         "low_confidence_cases": [
             {
                 "prediction": {

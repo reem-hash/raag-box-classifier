@@ -5,5 +5,19 @@
         "confidence": 0.8,
         "reason": "The box appears to be fully intact and functional, with only minor cosmetic wear visible. There are no tears, holes, or significant dents that would compromise its structural integrity.",
         "damage_types": []
+    },
+    {
+        "image": "img_1765096560.353808.jpg",
+        "driver_id": "234235",
+        "box_id": "",
+        "condition": "NEEDS_FIX",
+        "confidence": 0.85,
+        "reason": "The box has a noticeable crack and appears to have structural damage that could compromise its functionality. Additionally, there are signs of wear and possible water damage.",
+        "damage_types": [
+            "crack",
+            "wear",
+            "possible water damage"
+        ],
+        "timestamp": "2025-12-07T11:36:06.681789"
     }
 ]

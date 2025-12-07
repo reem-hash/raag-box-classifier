@@ -3,6 +3,8 @@ import requests
 import io
 from typing import Tuple, Optional
 from datetime import datetime
+import numpy as np
+from PIL import Image
 
 # API Configuration
 API_URL = "http://127.0.0.1:7861/upload_box"
@@ -15,297 +17,484 @@ current_image = None
 current_result = None
 current_driver_id = None
 
+# Authentic Snoonu Brand Colors (from official brand identity)
+SNOONU_RED = "#E31E24"  # Signature Snoonu red
+SNOONU_RED_LIGHT = "#FF4444"  # Lighter red for gradients
+SNOONU_SUCCESS = "#00C851"  # Green for success
+SNOONU_DARK = "#1A1A1A"  # Dark text
+SNOONU_GRAY = "#F5F5F5"  # Light background
 
-def evaluate_box(image, driver_id: str, box_id: str = "") -> Tuple[str, Optional[str], str]:
-    """
-    Evaluate box condition and return result with confidence
+
+def check_image_quality(image) -> Tuple[bool, str]:
+    """Check if image meets quality requirements"""
+    if image is None:
+        return False, ""
     
-    Args:
-        image: PIL Image of the box
-        driver_id: Driver identifier
-        box_id: Optional box/package identifier
+    try:
+        img_array = np.array(image)
+        brightness = np.mean(img_array)
         
-    Returns:
-        (result_text, preview_image, statistics)
-    """
+        if brightness < 50:
+            return False, "📸 Too dark - Please use better lighting"
+        
+        if brightness > 240:
+            return False, "📸 Too bright - Move away from direct light"
+        
+        gray = np.mean(img_array, axis=2) if len(img_array.shape) == 3 else img_array
+        laplacian_var = np.var(gray[1:] - gray[:-1])
+        
+        if laplacian_var < 100:
+            return False, "📸 Blurry - Hold camera steady"
+        
+        if image.size[0] < 300 or image.size[1] < 300:
+            return False, "📸 Get closer to the box"
+        
+        return True, "✓ Photo looks good!"
+        
+    except Exception as e:
+        return True, ""
+
+
+def evaluate_box(image, driver_id: str) -> Tuple[str, str, str]:
+    """Main evaluation function - simplified"""
     global current_image, current_result, current_driver_id
     
     if image is None:
-        return "⚠️ Please upload an image first.", None, ""
+        return "📸 Please take a photo first", "", ""
     
     if not driver_id or driver_id.strip() == "":
-        return "⚠️ Please enter your Driver ID.", None, ""
+        return "👤 Please enter your Driver ID", "", ""
     
-    print(f"📸 Evaluating box image for Driver: {driver_id}")
+    # Check image quality
+    is_quality_ok, quality_msg = check_image_quality(image)
+    if not is_quality_ok:
+        return f"⚠️ {quality_msg}\n\nPlease retake the photo", "", quality_msg
     
     # Store for feedback
     current_image = image
     current_driver_id = driver_id.strip()
     
-    # Convert PIL to bytes
+    # Convert to bytes
     buf = io.BytesIO()
     image.save(buf, format="JPEG")
     img_bytes = buf.getvalue()
-    
-    # Prepare form data
-    files = {"file": ("image.jpg", img_bytes, "image/jpeg")}
-    data = {
-        "driver_id": current_driver_id,
-        "box_id": box_id.strip() if box_id else ""
-    }
+    buf.seek(0)
     
     # Send to API
     try:
+        files = {"file": ("image.jpg", buf, "image/jpeg")}
+        data = {"driver_id": current_driver_id, "box_id": ""}
+        
         response = requests.post(API_URL, files=files, data=data, timeout=30)
         response.raise_for_status()
         
         result_data = response.json()
         current_result = result_data
         
-        # Format result
         condition = result_data.get("condition", "UNKNOWN")
         confidence = result_data.get("confidence", 0.0)
-        reason = result_data.get("reason", "No reason provided")
-        should_review = result_data.get("should_review", False)
-        damage_types = result_data.get("damage_types", [])
-        image_id = result_data.get("image_id", "")
+        reason = result_data.get("reason", "")
         
-        # Create status message
+        # Create simple, clear result with Snoonu branding
         if condition == "OK":
-            icon = "🟢"
-            status_color = "green"
+            result_html = f"""
+<div style="text-align: center; padding: 40px 30px; background: linear-gradient(135deg, #00C851 0%, #00E45D 100%); border-radius: 20px; color: white; box-shadow: 0 4px 20px rgba(0,200,81,0.3);">
+    <div style="font-size: 64px; margin-bottom: 10px;">✓</div>
+    <h2 style="margin: 0 0 8px 0; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">All Good!</h2>
+    <p style="margin: 0; font-size: 18px; opacity: 0.95;">Ready to deliver</p>
+    <div style="margin-top: 25px; padding: 15px; background: rgba(255,255,255,0.2); border-radius: 12px; backdrop-filter: blur(10px);">
+        <p style="margin: 0; font-size: 14px; opacity: 0.9;">{reason}</p>
+    </div>
+</div>
+"""
         else:
-            icon = "🔴"
-            status_color = "red"
-        
-        # Confidence indicator
-        conf_emoji = "🟢" if confidence >= 0.85 else "🟡" if confidence >= 0.6 else "🔴"
-        
-        result_text = f"""# {icon} BOX CONDITION: {condition}
-
-**Driver ID:** {current_driver_id}
-**Box ID:** {box_id if box_id else "Not specified"}
-**Image ID:** {image_id}
-**Timestamp:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
----
-
-**Confidence:** {conf_emoji} {confidence:.1%}
-**Reason:** {reason}
+            result_html = f"""
+<div style="text-align: center; padding: 40px 30px; background: linear-gradient(135deg, #E31E24 0%, #FF4444 100%); border-radius: 20px; color: white; box-shadow: 0 4px 20px rgba(227,30,36,0.3);">
+    <div style="font-size: 64px; margin-bottom: 10px;">⚠️</div>
+    <h2 style="margin: 0 0 8px 0; font-size: 32px; font-weight: 700; letter-spacing: -0.5px;">Needs Check</h2>
+    <p style="margin: 0; font-size: 18px; opacity: 0.95;">Contact operations team</p>
+    <div style="margin-top: 25px; padding: 15px; background: rgba(255,255,255,0.2); border-radius: 12px; backdrop-filter: blur(10px);">
+        <p style="margin: 0; font-size: 14px; opacity: 0.9;">{reason}</p>
+    </div>
+</div>
 """
         
-        if damage_types:
-            result_text += f"\n**Damage Types:** {', '.join(damage_types)}"
+        # Driver info card with Snoonu styling
+        driver_info = f"""
+<div style="background: white; padding: 20px; border-radius: 16px; margin-top: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px;">
+        <div style="text-align: center;">
+            <div style="color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Driver</div>
+            <div style="color: #1A1A1A; font-size: 16px; font-weight: 600;">{current_driver_id}</div>
+        </div>
+        <div style="text-align: center;">
+            <div style="color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Time</div>
+            <div style="color: #1A1A1A; font-size: 16px; font-weight: 600;">{datetime.now().strftime('%I:%M %p')}</div>
+        </div>
+        <div style="text-align: center;">
+            <div style="color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Confidence</div>
+            <div style="color: #1A1A1A; font-size: 16px; font-weight: 600;">{confidence:.0%}</div>
+        </div>
+    </div>
+    <div style="background: #F8F9FA; padding: 12px; border-radius: 10px; border-left: 3px solid #E31E24;">
+        <p style="margin: 0; color: #666; font-size: 13px; line-height: 1.5;">
+            💡 This check ensures your equipment is safe and ready
+        </p>
+    </div>
+</div>
+"""
         
-        if should_review:
-            result_text += "\n\n⚠️ **Low confidence** - Consider manual review"
+        return result_html + driver_info, quality_msg, ""
         
-        # Get statistics
-        stats_text = get_statistics_display(current_driver_id)
-        
-        return result_text, image, stats_text
-        
-    except requests.exceptions.RequestException as e:
-        error_msg = f"❌ **Error connecting to API:** {str(e)}\n\nMake sure the backend is running on port 7861."
-        return error_msg, None, ""
     except Exception as e:
-        error_msg = f"❌ **Error:** {str(e)}"
-        return error_msg, None, ""
+        return f"""
+<div style="text-align: center; padding: 40px 30px; background: #FFF5F5; border-radius: 20px; border: 2px solid #FFEBEE;">
+    <div style="font-size: 48px; margin-bottom: 15px; color: #E31E24;">⚠️</div>
+    <h2 style="margin: 0 0 8px 0; color: #E31E24; font-size: 24px; font-weight: 700;">Connection Error</h2>
+    <p style="margin: 0; color: #666; font-size: 14px;">Please check your internet connection</p>
+    <p style="margin: 15px 0 0 0; color: #999; font-size: 12px;">or contact support team</p>
+</div>
+""", quality_msg, ""
 
 
 def send_feedback(correct_label: str) -> str:
-    """Send feedback to improve the model"""
-    global current_image, current_result, current_driver_id
+    """Send feedback - simplified"""
+    global current_image, current_driver_id
     
-    if current_image is None:
-        return "⚠️ No image to provide feedback for. Upload and evaluate an image first."
-    
-    if not current_driver_id:
-        return "⚠️ Driver ID not found. Please evaluate an image first."
-    
-    print(f"📝 Sending feedback: {correct_label} from Driver: {current_driver_id}")
-    
-    # Convert PIL to bytes
-    buf = io.BytesIO()
-    current_image.save(buf, format="JPEG")
-    img_bytes = buf.getvalue()
-    
-    files = {"image": ("image.jpg", img_bytes, "image/jpeg")}
-    data = {
-        "correct_label": correct_label,
-        "driver_id": current_driver_id
-    }
+    if current_image is None or current_driver_id is None:
+        return "⚠️ Please complete a check first"
     
     try:
+        buf = io.BytesIO()
+        current_image.save(buf, format="JPEG")
+        buf.seek(0)
+        
+        files = {"image": ("image.jpg", buf, "image/jpeg")}
+        data = {"correct_label": correct_label, "driver_id": current_driver_id}
+        
         response = requests.post(FEEDBACK_URL, files=files, data=data, timeout=10)
         response.raise_for_status()
         
-        return f"✅ **Feedback recorded!** The system will learn from this correction.\n\n**Driver:** {current_driver_id}\n**Correct label:** {correct_label}\n\nThank you for helping improve the system!"
-        
-    except Exception as e:
-        return f"❌ Error sending feedback: {str(e)}"
-
-
-def get_statistics_display(driver_id: str = None) -> str:
-    """Fetch and format system statistics"""
-    try:
-        # Get overall statistics
-        response = requests.get(STATS_URL, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        
-        stats = data.get("statistics", {})
-        
-        total = stats.get("total_evaluations", 0)
-        low_conf_rate = stats.get("low_confidence_rate", 0)
-        avg_conf = stats.get("average_confidence", 0)
-        recent_conf = stats.get("recent_confidence_trend", 0)
-        training_samples = stats.get("training_samples_available", 0)
-        retrain = data.get("retraining_recommended", False)
-        
-        stats_text = f"""## 📊 System Statistics
-
-**Total Evaluations:** {total}
-**Average Confidence:** {avg_conf:.1%}
-**Recent Trend:** {recent_conf:.1%}
-**Low Confidence Rate:** {low_conf_rate:.1%}
-**Training Samples:** {training_samples}
+        return f"""
+<div style="background: #E8F5E9; padding: 16px; border-radius: 12px; border-left: 4px solid #00C851;">
+    <p style="margin: 0; color: #2E7D32; font-size: 14px; font-weight: 500;">
+        ✓ Thanks! Your feedback helps improve the system
+    </p>
+</div>
 """
-        
-        if retrain:
-            stats_text += "\n🔄 **Retraining recommended** - Sufficient data accumulated"
-        
-        # Get driver-specific statistics if driver_id provided
-        if driver_id and driver_id.strip():
-            try:
-                driver_response = requests.get(
-                    f"{DRIVER_STATS_URL}?driver_id={driver_id}",
-                    timeout=5
-                )
-                if driver_response.status_code == 200:
-                    driver_data = driver_response.json()
-                    driver_stats = driver_data.get("statistics", {})
-                    
-                    stats_text += f"""
-
----
-
-## 👤 Your Statistics (Driver: {driver_id})
-
-**Your Evaluations:** {driver_stats.get('total_evaluations', 0)}
-**Your Average Confidence:** {driver_stats.get('average_confidence', 0):.1%}
-**OK Boxes:** {driver_stats.get('ok_count', 0)}
-**Needs Fix:** {driver_stats.get('needs_fix_count', 0)}
-**Feedback Given:** {driver_stats.get('feedback_count', 0)}
-"""
-            except:
-                pass  # Driver stats not available
-        
-        return stats_text
-        
     except Exception as e:
-        return f"Statistics unavailable: {str(e)}"
+        return "⚠️ Could not save feedback. Please try again."
 
 
-def get_driver_history(driver_id: str) -> str:
-    """Get history for a specific driver"""
+def get_my_stats(driver_id: str) -> str:
+    """Get driver stats - simplified display with Snoonu styling"""
     if not driver_id or driver_id.strip() == "":
-        return "⚠️ Please enter a Driver ID to view history."
+        return ""
     
     try:
-        response = requests.get(
-            f"http://127.0.0.1:7861/driver_history?driver_id={driver_id}&limit=10",
-            timeout=5
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        history = data.get("history", [])
-        
-        if not history:
-            return f"No history found for Driver: {driver_id}"
-        
-        history_text = f"## 📋 Recent History for Driver: {driver_id}\n\n"
-        
-        for i, record in enumerate(history, 1):
-            timestamp = record.get("timestamp", "Unknown")
-            condition = record.get("condition", "Unknown")
-            confidence = record.get("confidence", 0)
-            box_id = record.get("box_id", "N/A")
+        response = requests.get(f"{DRIVER_STATS_URL}?driver_id={driver_id}", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            stats = data.get("statistics", {})
             
-            icon = "🟢" if condition == "OK" else "🔴"
-            conf_emoji = "🟢" if confidence >= 0.85 else "🟡" if confidence >= 0.6 else "🔴"
+            total = stats.get('total_evaluations', 0)
+            ok = stats.get('ok_count', 0)
+            needs_fix = stats.get('needs_fix_count', 0)
             
-            history_text += f"{i}. {icon} **{condition}** {conf_emoji} ({confidence:.1%})\n"
-            history_text += f"   Box: {box_id} | Time: {timestamp}\n\n"
-        
-        return history_text
-        
-    except Exception as e:
-        return f"❌ Error fetching history: {str(e)}"
+            return f"""
+<div style="background: white; padding: 25px; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+    <h3 style="margin: 0 0 20px 0; color: #1A1A1A; font-size: 18px; font-weight: 700;">📊 Your Activity</h3>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+        <div style="text-align: center; padding: 20px 15px; background: linear-gradient(135deg, #F5F5F5 0%, #FAFAFA 100%); border-radius: 12px; border: 1px solid #E0E0E0;">
+            <div style="font-size: 32px; font-weight: 700; color: #1A1A1A; margin-bottom: 5px;">{total}</div>
+            <div style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Total</div>
+        </div>
+        <div style="text-align: center; padding: 20px 15px; background: linear-gradient(135deg, #E8F5E9 0%, #F1F8F2 100%); border-radius: 12px; border: 1px solid #C8E6C9;">
+            <div style="font-size: 32px; font-weight: 700; color: #00C851; margin-bottom: 5px;">{ok}</div>
+            <div style="font-size: 11px; color: #2E7D32; text-transform: uppercase; letter-spacing: 0.5px;">Good</div>
+        </div>
+        <div style="text-align: center; padding: 20px 15px; background: linear-gradient(135deg, #FFEBEE 0%, #FFF5F5 100%); border-radius: 12px; border: 1px solid #FFCDD2;">
+            <div style="font-size: 32px; font-weight: 700; color: #E31E24; margin-bottom: 5px;">{needs_fix}</div>
+            <div style="font-size: 11px; color: #C62828; text-transform: uppercase; letter-spacing: 0.5px;">Check</div>
+        </div>
+    </div>
+</div>
+"""
+        return ""
+    except:
+        return ""
 
 
-# Build Gradio Interface
-with gr.Blocks(title="📦 RAAG Driver Box Checker", theme=gr.themes.Soft()) as interface:
+# Custom CSS for authentic Snoonu branding
+custom_css = """
+/* Snoonu Brand Styling - Official Colors */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+.gradio-container {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+    background: #FAFAFA !important;
+}
+
+/* Remove default gradio styling */
+.contain { gap: 20px !important; }
+
+/* Header styling with Snoonu red */
+.snoonu-header {
+    background: linear-gradient(135deg, #E31E24 0%, #FF4444 100%);
+    padding: 30px;
+    border-radius: 20px;
+    margin-bottom: 30px;
+    text-align: center;
+    color: white;
+    box-shadow: 0 4px 20px rgba(227, 30, 36, 0.25);
+}
+
+.snoonu-logo {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin: 0;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* Primary button - Snoonu red */
+.primary-btn button {
+    background: linear-gradient(135deg, #E31E24 0%, #FF4444 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    padding: 22px !important;
+    border-radius: 14px !important;
+    box-shadow: 0 4px 16px rgba(227, 30, 36, 0.3) !important;
+    transition: all 0.3s ease !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+
+.primary-btn button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(227, 30, 36, 0.4) !important;
+}
+
+.primary-btn button:active {
+    transform: translateY(0) !important;
+}
+
+/* Feedback buttons */
+.feedback-btn button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    padding: 12px 20px !important;
+    font-size: 14px !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Input fields - Modern styling */
+input[type="text"] {
+    border-radius: 12px !important;
+    border: 2px solid #E0E0E0 !important;
+    padding: 14px 16px !important;
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+    background: white !important;
+}
+
+input[type="text"]:focus {
+    border-color: #E31E24 !important;
+    box-shadow: 0 0 0 4px rgba(227, 30, 36, 0.1) !important;
+    outline: none !important;
+}
+
+/* Image upload area */
+.image-container {
+    border: 3px dashed #E0E0E0 !important;
+    border-radius: 16px !important;
+    background: white !important;
+    transition: all 0.3s ease !important;
+    padding: 20px !important;
+}
+
+.image-container:hover {
+    border-color: #E31E24 !important;
+    background: #FFF5F5 !important;
+}
+
+/* Labels */
+label {
+    font-weight: 600 !important;
+    color: #1A1A1A !important;
+    font-size: 14px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* Cards and sections */
+.info-card {
+    background: white;
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    margin: 15px 0;
+}
+
+/* Section titles */
+h3 {
+    color: #1A1A1A !important;
+    font-weight: 700 !important;
+    font-size: 18px !important;
+}
+
+/* Markdown styling */
+.markdown {
+    color: #1A1A1A !important;
+}
+
+/* Remove extra padding */
+.block { padding: 0 !important; }
+"""
+
+# Build the authentic Snoonu-branded interface
+with gr.Blocks(css=custom_css, theme=gr.themes.Soft(), title="Snoonu Box Check") as interface:
     
-    gr.Markdown("""
-    # 📦 RAAG Driver Box Condition Checker
-    ### Self-Improving AI System with Driver Tracking
-    
-    Upload a box image to automatically evaluate its condition. The system tracks your performance and learns over time.
+    # Header with Snoonu branding
+    gr.HTML("""
+    <div class="snoonu-header">
+        <div class="snoonu-logo">📦 Snoonu</div>
+        <p style="margin: 12px 0 0 0; font-size: 18px; opacity: 0.95; font-weight: 500;">
+            Box Safety Check
+        </p>
+        <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.85; font-weight: 400;">
+            Quick equipment check for drivers
+        </p>
+    </div>
     """)
     
     with gr.Row():
+        # Left column - Input
         with gr.Column(scale=1):
-            gr.Markdown("### 👤 Driver Information")
+            # Driver ID section
+            gr.HTML("""
+            <div style="background: white; padding: 20px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+                <h3 style="margin: 0 0 12px 0; color: #1A1A1A; font-size: 16px; font-weight: 700;">👤 Driver ID</h3>
+            """)
+            
             driver_id_input = gr.Textbox(
-                label="Driver ID *",
+                label="",
                 placeholder="Enter your Driver ID (e.g., D12345)",
-                info="Required for tracking your evaluations"
-            )
-            box_id_input = gr.Textbox(
-                label="Box/Package ID (Optional)",
-                placeholder="e.g., PKG-789456",
-                info="Optional tracking number"
+                show_label=False,
+                container=False
             )
             
-            gr.Markdown("### 📸 Upload Box Image")
-            img_input = gr.Image(type="pil", label="Box Image")
+            gr.HTML("</div>")
             
-            submit_btn = gr.Button("🔍 Check Condition", variant="primary", size="lg")
+            # Photo section
+            gr.HTML("""
+            <div style="background: white; padding: 20px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+                <h3 style="margin: 0 0 15px 0; color: #1A1A1A; font-size: 16px; font-weight: 700;">📸 Take Photo</h3>
+                <div style="background: #FFF9F0; padding: 16px; border-radius: 12px; margin-bottom: 15px; border-left: 4px solid #FFC107;">
+                    <p style="margin: 0; color: #F57C00; font-size: 13px; line-height: 1.6; font-weight: 500;">
+                        <strong style="display: block; margin-bottom: 8px;">Quick Tips:</strong>
+                        ✓ Use good lighting<br>
+                        ✓ Hold camera steady<br>
+                        ✓ Show full box side
+                    </p>
+                </div>
+            </div>
+            """)
             
-            gr.Markdown("---")
-            gr.Markdown("### 🎯 Provide Feedback (Optional)")
-            gr.Markdown("Help improve the model by correcting mistakes:")
+            # Image input
+            try:
+                img_input = gr.Image(
+                    sources=["webcam", "upload"],
+                    type="pil",
+                    label="",
+                    show_label=False,
+                    container=False,
+                    elem_classes=["image-container"]
+                )
+            except TypeError:
+                img_input = gr.Image(
+                    source="webcam",
+                    type="pil",
+                    label="",
+                    show_label=False,
+                    container=False,
+                    elem_classes=["image-container"]
+                )
             
-            with gr.Row():
-                ok_btn = gr.Button("✅ Actually OK", size="sm")
-                fix_btn = gr.Button("🔧 Actually NEEDS_FIX", size="sm")
+            # Photo quality feedback
+            quality_status = gr.Markdown("", visible=True)
             
-            feedback_output = gr.Markdown(label="Feedback Status")
+            gr.HTML("<div style='height: 20px;'></div>")
+            
+            # Main check button
+            with gr.Row(elem_classes=["primary-btn"]):
+                submit_btn = gr.Button("✓ Check Box", variant="primary", size="lg")
+            
+            gr.HTML("<div style='height: 30px;'></div>")
+            
+            # Feedback section
+            gr.HTML("""
+            <div style="background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+                <h3 style="margin: 0 0 8px 0; color: #1A1A1A; font-size: 16px; font-weight: 700;">💬 Wrong Result?</h3>
+                <p style="color: #666; font-size: 13px; margin: 0 0 15px 0; line-height: 1.5;">
+                    Help us improve - only if the result was incorrect
+                </p>
+            """)
+            
+            with gr.Row(elem_classes=["feedback-btn"]):
+                ok_btn = gr.Button("✓ Actually OK", size="sm", variant="secondary")
+                fix_btn = gr.Button("⚠️ Needs Check", size="sm", variant="secondary")
+            
+            gr.HTML("</div>")
+            
+            feedback_output = gr.HTML()
         
+        # Right column - Results
         with gr.Column(scale=1):
-            gr.Markdown("### 📋 Results")
-            result_output = gr.Markdown(label="Classification Result")
+            gr.HTML("""
+            <div style="background: white; padding: 20px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+                <h3 style="margin: 0 0 15px 0; color: #1A1A1A; font-size: 16px; font-weight: 700;">📋 Result</h3>
+            </div>
+            """)
             
-            preview_output = gr.Image(label="Preview", interactive=False)
+            result_output = gr.HTML()
+            
+            gr.HTML("<div style='height: 25px;'></div>")
+            
+            stats_output = gr.HTML()
     
-    gr.Markdown("---")
-    
-    with gr.Row():
-        with gr.Column(scale=1):
-            stats_output = gr.Markdown(label="Statistics")
-        
-        with gr.Column(scale=1):
-            gr.Markdown("### 📜 Your Recent History")
-            history_btn = gr.Button("🔄 Load My History", size="sm")
-            history_output = gr.Markdown(label="History")
+    # Footer with Snoonu branding
+    gr.HTML("""
+    <div style="text-align: center; padding: 30px; margin-top: 40px; background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+        <div style="display: inline-flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #E31E24 0%, #FF4444 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                📦
+            </div>
+            <div style="font-size: 24px; font-weight: 700; color: #1A1A1A;">Snoonu</div>
+        </div>
+        <p style="margin: 0; color: #666; font-size: 14px; font-weight: 500;">
+            Equipment safety check • Built in Qatar, for Qatar
+        </p>
+        <p style="margin: 12px 0 0 0; color: #999; font-size: 12px;">
+            This tool tracks equipment condition, not driver performance
+        </p>
+    </div>
+    """)
     
     # Button actions
     submit_btn.click(
         fn=evaluate_box,
-        inputs=[img_input, driver_id_input, box_id_input],
-        outputs=[result_output, preview_output, stats_output]
+        inputs=[img_input, driver_id_input],
+        outputs=[result_output, quality_status, feedback_output]
+    ).then(
+        fn=get_my_stats,
+        inputs=[driver_id_input],
+        outputs=[stats_output]
     )
     
     ok_btn.click(
@@ -318,44 +507,31 @@ with gr.Blocks(title="📦 RAAG Driver Box Checker", theme=gr.themes.Soft()) as 
         outputs=feedback_output
     )
     
-    history_btn.click(
-        fn=get_driver_history,
-        inputs=driver_id_input,
-        outputs=history_output
+    # Auto-load stats on driver ID change
+    driver_id_input.change(
+        fn=get_my_stats,
+        inputs=[driver_id_input],
+        outputs=[stats_output]
     )
-    
-    # Auto-load statistics on start
-    interface.load(
-        fn=get_statistics_display,
-        outputs=stats_output
-    )
-    
-    gr.Markdown("""
-    ---
-    ### 🤖 How It Works
-    
-    1. **Enter Driver ID** - Your unique identifier for tracking
-    2. **Upload Image** - The system analyzes box condition using AI vision
-    3. **Get Result** - Receive instant classification with confidence score
-    4. **Provide Feedback** - Optionally correct mistakes to improve the model
-    5. **Track Progress** - View your statistics and history
-    
-    **Features:**
-    - ✨ Self-improving through reinforcement learning
-    - 🎯 Driver performance tracking
-    - 📈 Automatic drift detection
-    - 🔄 Training data accumulation for fine-tuning
-    - 📊 Real-time performance statistics
-    
-    **Privacy:** Your Driver ID is used only for performance tracking and system improvement.
-    """)
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Gradio interface with driver tracking...")
-    print("📍 Make sure the FastAPI backend is running on port 7861")
+    print("\n" + "="*60)
+    print("  🚀 Snoonu Box Safety Checker")
+    print("  Authentic Snoonu Brand Identity")
+    print("="*60)
+    print(f"\n📦 Gradio version: {gr.__version__}")
+    print("🎨 Snoonu signature red: #E31E24")
+    print("📸 Camera input: Enabled")
+    print("✨ Qatar's first super app branding")
+    print("\n💡 Opening at: http://localhost:7860")
+    print("\n⚠️  Make sure backend is running on port 7861")
+    print("   Start with: python main.py\n")
+    print("="*60 + "\n")
+    
     interface.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False
+        share=False,
+        show_error=True
     )
